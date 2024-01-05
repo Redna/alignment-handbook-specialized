@@ -19,11 +19,59 @@ from typing import List, Literal, Optional
 from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
 from datasets.builder import DatasetGenerationError
 
-from .configs import DataArguments
+from .configs import ConvertToHFChatTemplateConfig, DataArguments, RoleBasedConverterConfig
 
 
 DEFAULT_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 'user' %}\n{{ '<|user|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'system' %}\n{{ '<|system|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'assistant' %}\n{{ '<|assistant|>\n'  + message['content'] + eos_token }}\n{% endif %}\n{% if loop.last and add_generation_prompt %}\n{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
 
+def transfer_to_role_based(example, system_keys=[], user_keys=["instruction", "input"], assistant_keys=["output"], seperator="\n"):
+    """
+    Transfers a dataset to a role-based.
+    """
+    system = {}
+    for key in system_keys:
+        system["role"] = "system"
+        if "content" in system:
+            if example[key]:
+                system["content"] += seperator + example[key]
+        else:
+            if example[key]:
+                system["content"] = example[key]
+    
+    user = {}
+    for key in user_keys:
+        user["role"] = "user"
+        if "content" in user:
+            if example[key]:
+                user["content"] += seperator + example[key]
+        else:
+            if example[key]:
+                user["content"] = example[key]
+    
+    assistant = {}
+    for key in assistant_keys:
+        assistant["role"] = "assistant"
+        if "content" in assistant:
+            if example[key]:
+                assistant["content"] += seperator + example[key]
+        else:
+            if example[key]:
+                assistant["content"] = example[key]
+    
+    example["messages"] = [system, user, assistant]
+    return example
+
+def convert_to_hf_chat_template(example, key="conversations", role_key="from", content_key="value", system_value="system", user_value="human", assistant_value="gpt"):
+    messages = []
+    for entry in example[key]:
+        if entry[role_key] == system_value:
+            messages.append({"role": "system", "content": entry[content_key]})
+        elif entry[role_key] == user_value:
+            messages.append({"role": "user", "content": entry[content_key]})
+        elif entry[role_key] == assistant_value:
+            messages.append({"role": "assistant", "content": entry[content_key]})
+    example["messages"] = messages
+    return example
 
 def apply_chat_template(
     example, tokenizer, task: Literal["sft", "generation", "rm", "dpo"] = "sft", assistant_prefix="<|assistant|>\n"
@@ -143,15 +191,55 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
     raw_train_datasets = []
     raw_val_datasets = []
     fracs = []
-    for ds, frac in dataset_mixer.items():
-        fracs.append(frac)
+    for dataset_args in dataset_mixer:
+        fracs.append(dataset_args.proportion)
         for split in splits:
             try:
                 # Try first if dataset on a Hub repo
-                dataset = load_dataset(ds, split=split)
+                data_files = dataset_args.data_files if dataset_args.data_files else None
+                dataset = load_dataset(dataset_args.dataset, split=split, data_files=data_files)
             except DatasetGenerationError:
                 # If not, check local dataset
-                dataset = load_from_disk(os.path.join(ds, split))
+                dataset = load_from_disk(os.path.join(dataset_args.dataset, split))
+            except ValueError as e:
+                print(e)
+                dataset = None
+
+            ############################
+            # random dataset
+            ############################
+            if dataset:
+                dataset = dataset.shuffle(seed=dataset_args.random_seed)
+                ############################
+                # Filter out blacklisted sources
+                ############################
+                if dataset_args.blacklist_sources and dataset_args.blacklist_sources_key:
+                    print("*** Filter out blacklisted sources ***")
+                    dataset = dataset.filter(
+                        lambda example: example[dataset_args.blacklist_sources_key] not in dataset_args.blacklist_sources
+                    )
+                
+                #####################
+                # Transfer to role based layout
+                #####################
+                if dataset_args.converter and type(dataset_args.converter) == RoleBasedConverterConfig:
+                    print("*** Transfer to role based layout ***")
+                    dataset = dataset.map(transfer_to_role_based, fn_kwargs={"system_keys": dataset_args.converter.system_keys, 
+                                                                                "user_keys": dataset_args.converter.user_keys,
+                                                                                "assistant_keys": dataset_args.converter.assistant_keys,
+                                                                                "seperator": dataset_args.converter.seperator})
+                
+                if dataset_args.converter and type(dataset_args.converter) == ConvertToHFChatTemplateConfig:
+                    print("*** Transfer to role based layout ***")
+                    dataset = dataset.map(convert_to_hf_chat_template, fn_kwargs={"key": dataset_args.converter.key,
+                                                                                    "role_key": dataset_args.converter.role_key,
+                                                                                    "content_key": dataset_args.converter.content_key,
+                                                                                    "system_value": dataset_args.converter.system_value,
+                                                                                    "user_value": dataset_args.converter.user_value,
+                                                                                    "assistant_value": dataset_args.converter.assistant_value})
+
+                if "messages" not in dataset[0]:
+                    raise ValueError(f"Dataset {dataset_args.dataset} does not have a `messages` key.")
 
             if "train" in split:
                 raw_train_datasets.append(dataset)
@@ -159,6 +247,12 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
                 raw_val_datasets.append(dataset)
             else:
                 raise ValueError(f"Split type {split} not recognized as one of test or train.")
+
+    for i, ds in enumerate(raw_val_datasets):
+        if ds is None:
+            tmp_split = raw_train_datasets[i].train_test_split(test_size=0.02*fracs[i], shuffle=True, seed=42)
+            raw_train_datasets[i] = tmp_split["train"]
+            raw_val_datasets[i] = tmp_split["test"]
 
     if any(frac < 0 for frac in fracs):
         raise ValueError("Dataset fractions cannot be negative.")

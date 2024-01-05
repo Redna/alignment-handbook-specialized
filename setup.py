@@ -42,7 +42,6 @@ if stale_egg_info.exists():
 #   * If a dependency is fast-moving (e.g. transformers), pin to the exact version
 _deps = [
     "accelerate==0.23.0",
-    "bitsandbytes==0.41.2.post2",
     "black==23.1.0",
     "datasets==2.14.6",
     "deepspeed==0.12.2",
@@ -62,11 +61,12 @@ _deps = [
     "safetensors>=0.3.3",
     "scipy",
     "tensorboard",
-    "torch==2.1.0",
+    #"torch==2.1.0",
     "transformers==4.35.0",
     "trl==0.7.4",
     "jinja2>=3.0.0",
     "tqdm>=4.64.1",
+    "sentencepiece==0.1.99"
 ]
 
 # this is a lookup table with items like:
@@ -84,7 +84,7 @@ def deps_list(*pkgs):
 
 extras = {}
 extras["tests"] = deps_list("pytest", "parameterized")
-extras["torch"] = deps_list("torch")
+#extras["torch"] = deps_list("torch")
 extras["quality"] = deps_list("black", "isort", "flake8")
 extras["docs"] = deps_list("hf-doc-builder")
 extras["dev"] = extras["docs"] + extras["quality"] + extras["tests"]

@@ -60,6 +60,7 @@ def get_tokenizer(model_args: ModelArguments, data_args: DataArguments) -> PreTr
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.model_name_or_path,
         revision=model_args.model_revision,
+        use_fast=data_args.use_fast_tokenizer
     )
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id

@@ -94,9 +94,21 @@ def main():
     #####################
     # Apply chat template
     #####################
+
     raw_datasets = raw_datasets.map(apply_chat_template, fn_kwargs={"tokenizer": tokenizer, "task": "sft"})
     train_dataset = raw_datasets["train"]
     eval_dataset = raw_datasets["test"]
+
+
+    ############################
+    # Filter out too much tokens examples
+    ############################
+    
+    train_dataset = train_dataset.filter(lambda example: len(tokenizer.encode(example["text"])) < training_args.max_seq_length)
+    eval_dataset = eval_dataset.filter(lambda example: len(tokenizer.encode(example["text"])) < training_args.max_seq_length)
+
+    print("train_dataset", train_dataset)
+    print("eval_dataset", eval_dataset)
 
     with training_args.main_process_first(desc="Log a few random samples from the processed training set"):
         for index in random.sample(range(len(raw_datasets["train"])), 3):
@@ -122,6 +134,11 @@ def main():
     )
     logger.info("*** Model loaded! ***")
 
+    #print("RESUMING FROM 1300")
+    #train_position = (training_args.gradient_accumulation_steps * training_args.per_device_train_batch_size) * 1300
+    #train_dataset = train_dataset.select(range(train_position, len(train_dataset)))
+    #print(train_dataset)
+
     ########################
     # Initialize the Trainer
     ########################
@@ -137,12 +154,18 @@ def main():
         packing=True,
         peft_config=get_peft_config(model_args),
     )
+    #print("TOTAL NUMBER: ", len(train_dataset) // (training_args.gradient_accumulation_steps * training_args.per_device_train_batch_size))
+
 
     ###############
     # Training loop
     ###############
+    if training_args.resume_from_checkpoint:
+        logger.info("setting overwrite_output_dir=False to resume training")
+        training_args.overwrite_output_dir = False
+
     logger.info("*** Train ***")
-    train_result = trainer.train()
+    train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint) if training_args.resume_from_checkpoint else trainer.train()
     metrics = train_result.metrics
     max_train_samples = data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
     metrics["train_samples"] = min(max_train_samples, len(train_dataset))

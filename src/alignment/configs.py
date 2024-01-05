@@ -181,6 +181,96 @@ class ModelArguments:
         if self.load_in_8bit and self.load_in_4bit:
             raise ValueError("You can't use 8 bit and 4 bit precision at the same time")
 
+@dataclass
+class ConvertToHFChatTemplateConfig:
+    name: str = "convert_to_hf_chat_template"
+
+    key: Optional[str] = field(
+        default="conversations",
+        metadata={"help": ("The key to use in the dataset.")},
+    )
+    role_key: Optional[str] = field(
+        default="from",
+        metadata={"help": ("The role key to use in the dataset.")},
+    )
+    content_key: Optional[str] = field(
+        default="value",
+        metadata={"help": ("The content key to use in the dataset.")},
+    )
+    system_value: Optional[str] = field(
+        default="system",
+        metadata={"help": ("The system value to use in the dataset.")},
+    )
+    user_value: Optional[str] = field(
+        default="human",
+        metadata={"help": ("The user value to use in the dataset.")},
+    )
+    assistant_value: Optional[str] = field(
+        default="gpt",
+        metadata={"help": ("The assistant value to use in the dataset.")},
+    )
+
+@dataclass
+class RoleBasedConverterConfig:
+    name: str = "role_based_converter"
+    system_keys: Optional[List[str]] = field(
+        default_factory=list,
+        metadata={"help": ("The system keys to use in the dataset.")},
+    )
+    user_keys: Optional[List[str]] = field(
+        default_factory=lambda: ["instruction", "input"],
+        metadata={"help": ("The user keys to use in the dataset.")},
+    )
+    assistant_keys: Optional[List[str]] = field(
+        default_factory=lambda: ["output"],
+        metadata={"help": ("The assistant keys to use in the dataset.")},
+    )
+    seperator: Optional[str] = field(
+        default="\n",
+        metadata={"help": ("The seperator to within the content if multiple keys are used.")},
+    )
+
+@dataclass
+class DatasetMixerConfig:
+    dataset: str = field(metadata={"help": ("The dataset to use.")})
+    proportion: float = field(default=1.0, metadata={"help": ("The proportion of the dataset to use.")})
+    data_files: Optional[List[str]] = field(
+        default_factory=list,
+        metadata={"help": ("The data files to use in the dataset.")},
+    )
+    random_seed: Optional[int] = field(
+        default=42,
+        metadata={"help": ("The random seed to use in the dataset.")},
+    )
+    dataset_splits: Optional[List[str]] = field(
+        default_factory=lambda: ["train", "test"],
+        metadata={"help": ("List of train test splits to use in the dataset")},
+    )
+    blacklist_sources: Optional[List[str]] = field(
+        default=list,
+        metadata={"help": ("Filter the sources to use in the dataset.")},
+    )
+    blacklist_sources_key: Optional[str] = field(
+        default=None,
+        metadata={"help": ("Filter the sources to use in the dataset.")},
+    )
+    converter: Optional[RoleBasedConverterConfig | ConvertToHFChatTemplateConfig] = field(
+        default=None,
+        metadata={"help": ("The properties to define the role based converter.")},
+    )
+
+    def __post_init__(self):
+        if self.converter:
+            if not "name" in self.converter:
+                raise ValueError("Converter must have a name.")
+
+            if self.converter["name"] == ConvertToHFChatTemplateConfig.name:
+                self.converter = ConvertToHFChatTemplateConfig(**self.converter)
+            elif self.converter["name"] == RoleBasedConverterConfig.name:
+                self.converter = RoleBasedConverterConfig(**self.converter)
+            else:
+                raise ValueError(f"Unknown converter name: {self.converter['name']}")
+
 
 @dataclass
 class DataArguments:
@@ -189,9 +279,9 @@ class DataArguments:
     """
 
     chat_template: Optional[str] = field(default=None, metadata={"help": "The chat template to use."})
-    dataset_mixer: Optional[Dict[str, float]] = field(
+    dataset_mixer: Optional[List[DatasetMixerConfig]] = field(
         default=None,
-        metadata={"help": ("Datasets and their proportions to be used for training ift/rl.")},
+        metadata={"help": ("The properties to define the dataset processing.")},
     )
     dataset_splits: Optional[List[str]] = field(
         default_factory=lambda: ["train", "test"],
@@ -222,6 +312,17 @@ class DataArguments:
     truncation_side: Optional[str] = field(
         default=None, metadata={"help": "Truncation side to use for the tokenizer."}
     )
+    use_fast_tokenizer: bool = field(
+        default=True,
+        metadata={"help": ("Whether to use one of the fast tokenizer (backed by the tokenizers library) or not.")},
+    )
+
+    def __post_init__(self):
+        dataset_mixer_data = []
+        for dataset in self.dataset_mixer:
+            dataset_mixer_data.append(DatasetMixerConfig(**dataset))
+        self.dataset_mixer = dataset_mixer_data
+
 
 
 @dataclass
