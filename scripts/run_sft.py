@@ -104,8 +104,8 @@ def main():
     # Filter out too much tokens examples
     ############################
     
-    train_dataset = train_dataset.filter(lambda example: len(tokenizer.encode(example["text"])) < training_args.max_seq_length)
-    eval_dataset = eval_dataset.filter(lambda example: len(tokenizer.encode(example["text"])) < training_args.max_seq_length)
+    train_dataset = train_dataset.filter(lambda example: len(tokenizer.encode(example["text"])) < training_args.max_seq_length, batched=True, batch_size=10_000)
+    eval_dataset = eval_dataset.filter(lambda example: len(tokenizer.encode(example["text"])) < training_args.max_seq_length, batched=True, batch_size=10_000)
 
     print("train_dataset", train_dataset)
     print("eval_dataset", eval_dataset)

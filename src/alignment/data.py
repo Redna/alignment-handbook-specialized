@@ -188,13 +188,13 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
             Whether to shuffle the training and testing/validation data.
     """
     raw_datasets = DatasetDict()
-    raw_train_datasets = []
     raw_val_datasets = []
     fracs = []
 
     train_subsets = []
 
     for dataset_args in dataset_mixer:
+        fracs.append(dataset_args.proportion)
         if dataset_args.proportion < 0:
             raise ValueError("Dataset fractions cannot be negative.")
         
@@ -260,7 +260,7 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
             train_subsets[i] = tmp_split["train"]
             raw_val_datasets[i] = tmp_split["test"]
 
-    if len(raw_train_datasets) > 0:
+    if len(train_subsets) > 0:
         if shuffle:
             raw_datasets["train"] = concatenate_datasets(train_subsets).shuffle(seed=42)
         else:
