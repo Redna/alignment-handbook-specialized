@@ -41,12 +41,12 @@ if stale_egg_info.exists():
 # IMPORTANT: all dependencies should be listed here with their version requirements, if any.
 #   * If a dependency is fast-moving (e.g. transformers), pin to the exact version
 _deps = [
-    "accelerate==0.23.0",
+    "accelerate==0.25.0",
     "black==23.1.0",
     "datasets==2.14.6",
     "deepspeed==0.12.2",
     "einops>=0.6.1",
-    "evaluate==0.4.0",
+    "evaluate==0.4.0", 
     "flake8>=6.0.0",
     "hf-doc-builder>=0.4.0",
     "huggingface-hub>=0.14.1,<1.0",
@@ -62,8 +62,8 @@ _deps = [
     "scipy",
     "tensorboard",
     #"torch==2.1.0",
-    "transformers==4.35.0",
-    "trl==0.7.4",
+    "transformers==4.36.2",
+    "trl==0.7.7",
     "jinja2>=3.0.0",
     "tqdm>=4.64.1",
     "sentencepiece==0.1.99"
@@ -92,7 +92,7 @@ extras["dev"] = extras["docs"] + extras["quality"] + extras["tests"]
 # core dependencies shared across the whole project - keep this to a bare minimum :)
 install_requires = [
     deps["accelerate"],
-    deps["bitsandbytes"],
+    #deps["bitsandbytes"],
     deps["einops"],
     deps["evaluate"],
     deps["datasets"],

@@ -87,6 +87,7 @@ save_steps: 40
 save_total_limit: 5
 seed: 42
 tf32: false
-resume_from_checkpoint: false
+resume_from_checkpoint: true
 output_dir: data/TinyLlama-1.1B-Chat-v1.0-reasoning-v2
+overwrite_output_dir: false
 

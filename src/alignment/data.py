@@ -191,8 +191,13 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
     raw_train_datasets = []
     raw_val_datasets = []
     fracs = []
+
+    train_subsets = []
+
     for dataset_args in dataset_mixer:
-        fracs.append(dataset_args.proportion)
+        if dataset_args.proportion < 0:
+            raise ValueError("Dataset fractions cannot be negative.")
+        
         for split in splits:
             try:
                 # Try first if dataset on a Hub repo
@@ -210,6 +215,7 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
             ############################
             if dataset:
                 dataset = dataset.shuffle(seed=dataset_args.random_seed)
+                dataset = dataset.select(range(int(dataset_args.proportion * len(dataset))))
                 ############################
                 # Filter out blacklisted sources
                 ############################
@@ -242,7 +248,7 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
                     raise ValueError(f"Dataset {dataset_args.dataset} does not have a `messages` key.")
 
             if "train" in split:
-                raw_train_datasets.append(dataset)
+                train_subsets.append(dataset)
             elif "test" in split:
                 raw_val_datasets.append(dataset)
             else:
@@ -250,18 +256,11 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
 
     for i, ds in enumerate(raw_val_datasets):
         if ds is None:
-            tmp_split = raw_train_datasets[i].train_test_split(test_size=0.02*fracs[i], shuffle=True, seed=42)
-            raw_train_datasets[i] = tmp_split["train"]
+            tmp_split = train_subsets[i].train_test_split(test_size=0.02*fracs[i], shuffle=True, seed=42)
+            train_subsets[i] = tmp_split["train"]
             raw_val_datasets[i] = tmp_split["test"]
 
-    if any(frac < 0 for frac in fracs):
-        raise ValueError("Dataset fractions cannot be negative.")
-
     if len(raw_train_datasets) > 0:
-        train_subsets = []
-        for dataset, frac in zip(raw_train_datasets, fracs):
-            train_subset = dataset.select(range(int(frac * len(dataset))))
-            train_subsets.append(train_subset)
         if shuffle:
             raw_datasets["train"] = concatenate_datasets(train_subsets).shuffle(seed=42)
         else:
