@@ -19,7 +19,7 @@ from typing import List, Literal, Optional
 from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
 from datasets.builder import DatasetGenerationError
 
-from .configs import ConvertToHFChatTemplateConfig, DataArguments, RoleBasedConverterConfig
+from .configs import ConvertToHFChatTemplateConfig, DataArguments, RoleBasedConverterConfig, RoleBasedConverterDPOConfig
 
 
 DEFAULT_CHAT_TEMPLATE = "{% for message in messages %}\n{% if message['role'] == 'user' %}\n{{ '<|user|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'system' %}\n{{ '<|system|>\n' + message['content'] + eos_token }}\n{% elif message['role'] == 'assistant' %}\n{{ '<|assistant|>\n'  + message['content'] + eos_token }}\n{% endif %}\n{% if loop.last and add_generation_prompt %}\n{{ '<|assistant|>' }}\n{% endif %}\n{% endfor %}"
@@ -30,35 +30,80 @@ def transfer_to_role_based(example, system_keys=[], user_keys=["instruction", "i
     """
     system = {}
     for key in system_keys:
-        system["role"] = "system"
         if "content" in system:
-            if example[key]:
+            if example[key] and example[key] != "":
                 system["content"] += seperator + example[key]
         else:
-            if example[key]:
+            if example[key] and example[key] != "":
+                system["role"] = "system"
                 system["content"] = example[key]
     
     user = {}
     for key in user_keys:
-        user["role"] = "user"
         if "content" in user:
-            if example[key]:
+            if example[key] and example[key] != "":
                 user["content"] += seperator + example[key]
         else:
-            if example[key]:
+            if example[key] and example[key] != "":
+                user["role"] = "user"
                 user["content"] = example[key]
     
     assistant = {}
     for key in assistant_keys:
-        assistant["role"] = "assistant"
         if "content" in assistant:
-            if example[key]:
+            if example[key] and example[key] != "":
                 assistant["content"] += seperator + example[key]
         else:
-            if example[key]:
+            if example[key] and example[key] != "":
+                assistant["role"] = "assistant"
                 assistant["content"] = example[key]
     
     example["messages"] = [system, user, assistant]
+    return example
+
+def transfer_to_role_based_dpo(example, system_keys=["system"], user_keys=["question"], chosen_keys=["chosen"], rejected_keys=["rejected"], seperator="\n"):
+    system = {}
+    for key in system_keys:
+        if "content" in system:
+            if example[key] and example[key] != "":
+                system["content"] += seperator + example[key]
+        else:
+            if example[key] and example[key] != "":
+                system["role"] = "system"
+                system["content"] = example[key]
+    
+    user = {}
+    for key in user_keys:
+        if "content" in user:
+            if example[key] and example[key] != "":
+                user["content"] += seperator + example[key]
+        else:
+            if example[key] and example[key] != "":
+                user["role"] = "user"
+                user["content"] = example[key]
+    
+    chosen = {}
+    for key in chosen_keys:
+        if "content" in chosen:
+            if example[key] and example[key] != "":
+                chosen["content"] += seperator + example[key]
+        else:
+            if example[key] and example[key] != "":
+                chosen["role"] = "assistant"
+                chosen["content"] = example[key]
+    
+    rejected = {}
+    for key in rejected_keys:
+        if "content" in rejected:
+            if example[key] and example[key] != "":
+                rejected["content"] += seperator + example[key]
+        else:
+            if example[key] and example[key] != "":
+                rejected["role"] = "assistant"
+                rejected["content"] = example[key]
+    
+    example["chosen"] = [system, user, chosen]
+    example["rejected"] = [system, user, rejected]
     return example
 
 def convert_to_hf_chat_template(example, key="conversations", role_key="from", content_key="value", system_value="system", user_value="human", assistant_value="gpt"):
@@ -122,6 +167,7 @@ def apply_chat_template(
             )
             example["text_chosen"] = _strip_prefix(example["text_chosen"], assistant_prefix)
             example["text_rejected"] = _strip_prefix(example["text_rejected"], assistant_prefix)
+    
         else:
             raise ValueError(
                 f"Could not format example as dialogue for `dpo` task! Require `[chosen, rejected]` keys but found {list(example.keys())}"
@@ -244,8 +290,14 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
                                                                                     "user_value": dataset_args.converter.user_value,
                                                                                     "assistant_value": dataset_args.converter.assistant_value})
 
-                if "messages" not in dataset[0]:
-                    raise ValueError(f"Dataset {dataset_args.dataset} does not have a `messages` key.")
+                
+                if dataset_args.converter and type(dataset_args.converter) == RoleBasedConverterDPOConfig:
+                    print("*** Transfer to role based layout ***")
+                    dataset = dataset.map(transfer_to_role_based_dpo, fn_kwargs={"system_keys": dataset_args.converter.system_keys, 
+                                                                                "user_keys": dataset_args.converter.user_keys,
+                                                                                "chosen_keys": dataset_args.converter.chosen_keys,
+                                                                                "rejected_keys": dataset_args.converter.rejected_keys,
+                                                                                "seperator": dataset_args.converter.seperator})
 
             if "train" in split:
                 train_subsets.append(dataset)

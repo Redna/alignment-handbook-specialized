@@ -231,6 +231,31 @@ class RoleBasedConverterConfig:
     )
 
 @dataclass
+class RoleBasedConverterDPOConfig:
+    name: str = "role_based_converter_dpo"
+    system_keys: Optional[List[str]] = field(
+        default_factory=lambda: ["system"],
+        metadata={"help": ("The system keys to use in the dataset.")},
+    )
+    user_keys: Optional[List[str]] = field(
+        default_factory=lambda: ["question"],
+        metadata={"help": ("The user keys to use in the dataset.")},
+    )
+    chosen_keys: Optional[List[str]] = field(
+        default_factory=lambda: ["chosen"],
+        metadata={"help": ("The assistant keys to use in the dataset.")},
+    )
+    rejected_keys: Optional[List[str]] = field(
+        default_factory=lambda: ["rejected"],
+        metadata={"help": ("The assistant keys to use in the dataset.")},
+    )
+    seperator: Optional[str] = field(
+        default="\n",
+        metadata={"help": ("The seperator to within the content if multiple keys are used.")},
+    )
+
+
+@dataclass
 class DatasetMixerConfig:
     dataset: str = field(metadata={"help": ("The dataset to use.")})
     proportion: float = field(default=1.0, metadata={"help": ("The proportion of the dataset to use.")})
@@ -268,6 +293,8 @@ class DatasetMixerConfig:
                 self.converter = ConvertToHFChatTemplateConfig(**self.converter)
             elif self.converter["name"] == RoleBasedConverterConfig.name:
                 self.converter = RoleBasedConverterConfig(**self.converter)
+            elif self.converter["name"] == RoleBasedConverterDPOConfig.name:
+                self.converter = RoleBasedConverterDPOConfig(**self.converter)
             else:
                 raise ValueError(f"Unknown converter name: {self.converter['name']}")
 

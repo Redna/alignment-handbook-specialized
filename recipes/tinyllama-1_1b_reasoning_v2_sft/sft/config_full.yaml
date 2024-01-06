@@ -1,5 +1,5 @@
 # Model arguments
-model_name_or_path: alexredna/TinyLlama-1.1B-Chat-v1.0-reasoning-sft-full
+model_name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 model_revision: main
 torch_dtype: bfloat16
 use_flash_attention_2: false
@@ -41,7 +41,7 @@ dataset_mixer:
         - output
       seperator: "\n\n"
   - dataset: Open-Orca/SlimOrca-Dedup
-    proportion: 0.15
+    proportion: 0.3
     converter:
       name: convert_to_hf_chat_template
   - dataset: databricks/databricks-dolly-15k
