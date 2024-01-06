@@ -36,11 +36,12 @@ optim: rmsprop
 output_dir: data/TinyLlama-1.1B-Chat-v1.0-reasoning-v2-dpo
 per_device_train_batch_size: 8
 per_device_eval_batch_size: 4
-push_to_hub: truereport_to:
+push_to_hub: true
+report_to:
 - tensorboard
 - wandb
 save_strategy: steps
 save_steps: 150
-save_total_limit: 5
+save_total_limit: 2
 seed: 42
 warmup_ratio: 0.1
