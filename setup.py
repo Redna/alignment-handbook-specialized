@@ -66,7 +66,8 @@ _deps = [
     "trl==0.7.7",
     "jinja2>=3.0.0",
     "tqdm>=4.64.1",
-    "sentencepiece==0.1.99"
+    "sentencepiece==0.1.99",
+    "matplotlib==3.8.2"
 ]
 
 # this is a lookup table with items like:

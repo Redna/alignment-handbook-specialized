@@ -1,7 +1,7 @@
 # Model arguments
 model_name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 model_revision: main
-torch_dtype: bfloat16
+torch_dtype: float32
 use_flash_attention_2: false
 
 # Data training arguments
@@ -82,6 +82,7 @@ push_to_hub: true
 remove_unused_columns: true
 report_to:
 - tensorboard
+- wandb
 save_strategy: steps
 save_steps: 40
 save_total_limit: 5

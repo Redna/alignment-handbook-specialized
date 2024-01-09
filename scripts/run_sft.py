@@ -24,7 +24,7 @@ import sys
 import datasets
 import torch
 import transformers
-from transformers import set_seed
+from transformers import set_seed, AutoConfig
 
 from accelerate import Accelerator
 from alignment import (
@@ -40,10 +40,37 @@ from alignment import (
     get_tokenizer,
 )
 from trl import SFTTrainer
+from dataclasses import asdict
+
+import matplotlib.pyplot as plt
+import numpy as np
+from collections import Counter
+
 
 
 logger = logging.getLogger(__name__)
 
+def _plot_word_count_distribution(name, dataset, bin_size=200):
+    # Fügen Sie eine neue Spalte "word_count" hinzu, die die Anzahl der Wörter in jedem Text enthält
+    dataset = dataset.map(lambda example: {"word_count": len(example["text"])})
+
+    # Zählen Sie die Häufigkeit jeder Wortanzahl
+    word_counts = list(dataset["word_count"])
+
+    # Erstellen Sie die Bereiche
+    bins = range(min(word_counts), max(word_counts) + bin_size, bin_size)
+
+    # Teilen Sie die Daten in Bereiche
+    histogram, bins = np.histogram(word_counts, bins=bins)
+
+    # Erstellen Sie den Plot
+    plt.bar(bins[:-1], histogram, width=bin_size)
+    plt.xlabel('Wortanzahl')
+    plt.ylabel('Häufigkeit')
+    plt.title('Wortanzahlverteilung')
+
+    # Speichern Sie den Plot als Bild
+    plt.savefig(f'{name}.png')
 
 def main():
     parser = H4ArgumentParser((ModelArguments, DataArguments, SFTConfig))
@@ -104,8 +131,10 @@ def main():
     # Filter out too much tokens examples
     ############################
     
-    train_dataset = train_dataset.filter(lambda example: len(tokenizer.encode(example["text"])) < training_args.max_seq_length, batched=True, batch_size=10_000)
-    eval_dataset = eval_dataset.filter(lambda example: len(tokenizer.encode(example["text"])) < training_args.max_seq_length, batched=True, batch_size=10_000)
+    estimated_words = training_args.max_seq_length * 1.8
+
+    train_dataset = train_dataset.filter(lambda example: not len(example["text"]) >= estimated_words or len(tokenizer.encode(example["text"])) >= training_args.max_seq_length)
+    eval_dataset = eval_dataset.filter(lambda example: not len(example["text"]) >= estimated_words or len(tokenizer.encode(example["text"])) >= training_args.max_seq_length)
 
     print("train_dataset", train_dataset)
     print("eval_dataset", eval_dataset)
@@ -113,6 +142,12 @@ def main():
     with training_args.main_process_first(desc="Log a few random samples from the processed training set"):
         for index in random.sample(range(len(raw_datasets["train"])), 5):
             logger.info(f"Sample {index} of the processed training set:\n\n{raw_datasets['train'][index]['text']}")
+
+
+    # Visualize the distribution as a graph
+    _plot_word_count_distribution("train", train_dataset)
+    _plot_word_count_distribution("eval", eval_dataset)
+
 
     #######################
     # Load pretrained model
@@ -123,6 +158,7 @@ def main():
     )
     quantization_config = get_quantization_config(model_args)
 
+    use_cache = False if training_args.gradient_checkpointing else True
     model_kwargs = dict(
         revision=model_args.model_revision,
         trust_remote_code=model_args.trust_remote_code,
@@ -131,6 +167,8 @@ def main():
         use_cache=False if training_args.gradient_checkpointing else True,
         device_map=get_kbit_device_map() if quantization_config is not None else None,
         quantization_config=quantization_config,
+        rope_scaling=asdict(model_args.rope_scaling) if model_args.rope_scaling else None,
+        #config=AutoConfig.from_pretrained(model_args.model_name_or_path, rope_scaling=asdict(model_args.rope_scaling)) if model_args.rope_scaling else None
     )
     logger.info("*** Model loaded! ***")
 

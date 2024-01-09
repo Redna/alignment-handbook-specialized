@@ -1,0 +1,60 @@
+# Model arguments
+model_name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+model_revision: main
+use_flash_attention_2: false
+rope_scaling:
+  type: dynamic
+  factor: 2.0
+
+# Data training arguments
+dataset_mixer:
+  - dataset: databricks/databricks-dolly-15k
+    proportion: 1
+    converter:
+      name: role_based_converter
+      user_keys:
+        - context
+        - instruction
+      assistant_keys:
+        - response
+      seperator: "\n\n"
+preprocessing_num_workers: 12
+truncation_side: right
+use_fast_tokenizer: false
+
+# SFT trainer config
+bf16: true
+do_eval: true
+evaluation_strategy: epoch
+gradient_accumulation_steps: 20
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+hub_model_id: alexredna/Tukan-1.1B-Chat-v0.1
+hub_strategy: every_save
+learning_rate: 4.0e-05
+log_level: info
+logging_steps: 20
+logging_strategy: steps
+lr_scheduler_type: cosine
+max_seq_length: 4096
+max_steps: -1
+num_train_epochs: 3
+per_device_eval_batch_size: 1
+per_device_train_batch_size: 1
+push_to_hub: true
+remove_unused_columns: true
+report_to:
+- tensorboard
+#- wandb
+save_strategy: steps
+save_steps: 40
+save_total_limit: 5
+seed: 42
+bf16: true
+tf32: false
+resume_from_checkpoint: false
+output_dir: data/Tukan-1.1B-Chat
+overwrite_output_dir: true
+
+

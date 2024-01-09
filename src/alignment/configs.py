@@ -101,7 +101,17 @@ class H4ArgumentParser(HfArgumentParser):
         if len(output) == 1:
             output = output[0]
         return output
-
+    
+@dataclass
+class RopeScalingConfig:
+    type: str = field(
+        default="dynamic",
+        metadata={"help": ("The type of scaling to use. either `dynamic` or `linear`.")},
+    )
+    factor: Optional[float] = field(
+        default=2.0,
+        metadata={"help": ("The factor to use for scaling. https://www.reddit.com/r/LocalLLaMA/comments/14mrgpr/dynamically_scaled_rope_further_increases/")},
+    )
 
 @dataclass
 class ModelArguments:
@@ -177,10 +187,17 @@ class ModelArguments:
     )
     use_bnb_nested_quant: bool = field(default=False, metadata={"help": "use nested quantization"})
 
+    rope_scaling: Optional[RopeScalingConfig] = field(
+        default=None,
+        metadata={"help": ("The properties to define the rope scaling.")},
+    )
+
     def __post_init__(self):
         if self.load_in_8bit and self.load_in_4bit:
             raise ValueError("You can't use 8 bit and 4 bit precision at the same time")
 
+        if self.rope_scaling:
+            self.rope_scaling = RopeScalingConfig(**self.rope_scaling)
 @dataclass
 class ConvertToHFChatTemplateConfig:
     name: str = "convert_to_hf_chat_template"
