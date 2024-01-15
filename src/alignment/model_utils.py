@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from typing import Dict
+from typing import Dict, Union
 
 import torch
 from transformers import AutoTokenizer, BitsAndBytesConfig, PreTrainedTokenizer
@@ -32,12 +32,12 @@ def get_current_device() -> int:
     return Accelerator().local_process_index if torch.cuda.is_available() else "cpu"
 
 
-def get_kbit_device_map() -> Dict[str, int] | None:
+def get_kbit_device_map() -> Union[Dict[str, int],None]:
     """Useful for running inference with quantized models by setting `device_map=get_peft_device_map()`"""
     return {"": get_current_device()} if torch.cuda.is_available() else None
 
 
-def get_quantization_config(model_args) -> BitsAndBytesConfig | None:
+def get_quantization_config(model_args) -> Union[BitsAndBytesConfig, None]:
     if model_args.load_in_4bit:
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
@@ -47,7 +47,7 @@ def get_quantization_config(model_args) -> BitsAndBytesConfig | None:
         )
     elif model_args.load_in_8bit:
         quantization_config = BitsAndBytesConfig(
-            load_in_8bit=True,
+            load_in_8bit=True
         )
     else:
         quantization_config = None
@@ -80,7 +80,7 @@ def get_tokenizer(model_args: ModelArguments, data_args: DataArguments) -> PreTr
     return tokenizer
 
 
-def get_peft_config(model_args: ModelArguments) -> PeftConfig | None:
+def get_peft_config(model_args: ModelArguments) -> Union[PeftConfig, None]:
     if model_args.use_peft is False:
         return None
 

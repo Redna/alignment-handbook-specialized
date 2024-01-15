@@ -1,9 +1,26 @@
 # Model arguments
 model_name_or_path: ./data/Tukan-1.1B-Chat_merged
-torch_dtype: bfloat16
+torch_dtype: auto
+
+# LoRA arguments
+load_in_4bit: true
+load_in_8bit: false
+use_peft: true
+lora_r: 64
+lora_alpha: 64
+lora_dropout: 0.05
+lora_target_modules:
+- q_proj
+- k_proj
+- v_proj
+- o_proj
+- gate_proj
+- up_proj
+- down_proj
+- lm_head
 
 # Data training arguments
-# For definitions, see: src/h4/training/config.py
+
 dataset_mixer:
   - dataset: alexredna/oasst2_dpo_pairs
 preprocessing_num_workers: 12
@@ -12,9 +29,9 @@ preprocessing_num_workers: 12
 bf16: true
 beta: 0.1
 do_eval: true
-evaluation_strategy: steps
+evaluation_strategy: epoch
 eval_steps: 100
-gradient_accumulation_steps: 1
+gradient_accumulation_steps: 32
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
@@ -27,15 +44,11 @@ max_length: 1024
 max_prompt_length: 512
 num_train_epochs: 3
 optim: rmsprop
-output_dir: alexredna/Tukan-1.1B-Chat-v0.6_dpo
-per_device_train_batch_size: 8
+output_dir: alexredna/Tukan-1.1B-Chat-v0.6_dpo # It is handy to append `hub_model_revision` to keep track of your local experiments
+per_device_train_batch_size: 2
 per_device_eval_batch_size: 4
 push_to_hub: true
-report_to:
-- tensorboard
-- wandb
-save_strategy: steps
-save_steps: 150
-save_total_limit: 2
+save_strategy: "no"
+save_total_limit: null
 seed: 42
 warmup_ratio: 0.1

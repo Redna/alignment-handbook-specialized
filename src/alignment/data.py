@@ -14,9 +14,9 @@
 # limitations under the License.
 import os
 import re
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
-from datasets import DatasetDict, concatenate_datasets, load_dataset, load_from_disk
+from datasets import disable_caching, enable_caching, DatasetDict, concatenate_datasets, load_dataset, load_from_disk
 from datasets.builder import DatasetGenerationError
 
 from .configs import ConvertToHFChatTemplateConfig, DataArguments, RoleBasedConverterConfig, RoleBasedConverterDPOConfig
@@ -180,7 +180,7 @@ def apply_chat_template(
 
 
 def get_datasets(
-    data_config: DataArguments | dict,
+    data_config: Union[DataArguments, dict],
     splits: List[str] = ["train", "test"],
     shuffle: bool = True,
 ) -> DatasetDict:
@@ -239,7 +239,12 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
 
     train_subsets = []
 
+    seed = 42
+
+    disable_caching()
+
     for dataset_args in dataset_mixer:
+        seed = dataset_args.random_seed
         fracs.append(dataset_args.proportion)
         if dataset_args.proportion < 0:
             raise ValueError("Dataset fractions cannot be negative.")
@@ -260,7 +265,7 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
             # random dataset
             ############################
             if dataset:
-                dataset = dataset.shuffle(seed=dataset_args.random_seed)
+                dataset = dataset.shuffle(seed=seed)
                 dataset = dataset.select(range(int(dataset_args.proportion * len(dataset))))
                 ############################
                 # Filter out blacklisted sources
@@ -308,19 +313,19 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
 
     for i, ds in enumerate(raw_val_datasets):
         if ds is None:
-            tmp_split = train_subsets[i].train_test_split(test_size=0.02*fracs[i], shuffle=True, seed=42)
+            tmp_split = train_subsets[i].train_test_split(test_size=0.02*fracs[i], shuffle=True, seed=seed)
             train_subsets[i] = tmp_split["train"]
             raw_val_datasets[i] = tmp_split["test"]
 
     if len(train_subsets) > 0:
         if shuffle:
-            raw_datasets["train"] = concatenate_datasets(train_subsets).shuffle(seed=42)
+            raw_datasets["train"] = concatenate_datasets(train_subsets).shuffle(seed=seed)
         else:
             raw_datasets["train"] = concatenate_datasets(train_subsets)
     # No subsampling for test datasets to enable fair comparison across models
     if len(raw_val_datasets) > 0:
         if shuffle:
-            raw_datasets["test"] = concatenate_datasets(raw_val_datasets).shuffle(seed=42)
+            raw_datasets["test"] = concatenate_datasets(raw_val_datasets).shuffle(seed=seed)
         else:
             raw_datasets["test"] = concatenate_datasets(raw_val_datasets)
 
@@ -329,4 +334,5 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
             f"Dataset {dataset_mixer} not recognized with split {split}. Check the dataset has been correctly formatted."
         )
 
+    enable_caching()
     return raw_datasets

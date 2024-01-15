@@ -67,7 +67,8 @@ _deps = [
     "jinja2>=3.0.0",
     "tqdm>=4.64.1",
     "sentencepiece==0.1.99",
-    "matplotlib==3.8.2"
+    "matplotlib==3.8.2",
+    "optimum==1.16.1"
 ]
 
 # this is a lookup table with items like:
@@ -128,7 +129,7 @@ setup(
     packages=find_packages("src"),
     zip_safe=False,
     extras_require=extras,
-    python_requires=">=3.10.9",
+    python_requires=">=3.9.18",
     install_requires=install_requires,
     classifiers=[
         "Development Status :: 3 - Alpha",

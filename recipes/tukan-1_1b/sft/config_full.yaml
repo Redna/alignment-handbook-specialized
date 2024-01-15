@@ -2,9 +2,7 @@
 model_name_or_path: TinyLlama/TinyLlama-1.1B-Chat-v1.0
 model_revision: main
 use_flash_attention_2: false
-rope_scaling:
-  type: dynamic
-  factor: 2.0
+optimum: false
 
 # Data training arguments
 dataset_mixer:
@@ -26,20 +24,20 @@ use_fast_tokenizer: false
 bf16: true
 do_eval: true
 evaluation_strategy: epoch
-gradient_accumulation_steps: 20
+gradient_accumulation_steps: 40
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
 hub_model_id: alexredna/Tukan-1.1B-Chat-v0.1
 hub_strategy: every_save
-learning_rate: 4.0e-05
+learning_rate: 2.0e-05
 log_level: info
-logging_steps: 20
+logging_steps: 5
 logging_strategy: steps
 lr_scheduler_type: cosine
-max_seq_length: 4096
+max_seq_length: 2048
 max_steps: -1
-num_train_epochs: 3
+num_train_epochs: 2
 per_device_eval_batch_size: 1
 per_device_train_batch_size: 1
 push_to_hub: true
@@ -48,10 +46,9 @@ report_to:
 - tensorboard
 #- wandb
 save_strategy: steps
-save_steps: 40
-save_total_limit: 5
+save_steps: 50
+save_total_limit: 2
 seed: 42
-bf16: true
 tf32: false
 resume_from_checkpoint: false
 output_dir: data/Tukan-1.1B-Chat

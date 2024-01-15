@@ -16,7 +16,7 @@ import dataclasses
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, NewType, Optional, Tuple
+from typing import Any, Dict, List, NewType, Optional, Tuple, Union
 
 import transformers
 from transformers import MODEL_FOR_CAUSAL_LM_MAPPING, HfArgumentParser
@@ -86,7 +86,7 @@ class H4ArgumentParser(HfArgumentParser):
 
         return outputs
 
-    def parse(self) -> DataClassType | Tuple[DataClassType]:
+    def parse(self) -> Union[DataClassType, Tuple[DataClassType]]:
         if len(sys.argv) == 2 and sys.argv[1].endswith(".yaml"):
             # If we pass only one argument to the script and it's the path to a YAML file,
             # let's parse it to get our arguments.
@@ -187,17 +187,12 @@ class ModelArguments:
     )
     use_bnb_nested_quant: bool = field(default=False, metadata={"help": "use nested quantization"})
 
-    rope_scaling: Optional[RopeScalingConfig] = field(
-        default=None,
-        metadata={"help": ("The properties to define the rope scaling.")},
-    )
+    optimum: bool = field(default=False, metadata={"help": "use optimum training"})
 
     def __post_init__(self):
         if self.load_in_8bit and self.load_in_4bit:
             raise ValueError("You can't use 8 bit and 4 bit precision at the same time")
 
-        if self.rope_scaling:
-            self.rope_scaling = RopeScalingConfig(**self.rope_scaling)
 @dataclass
 class ConvertToHFChatTemplateConfig:
     name: str = "convert_to_hf_chat_template"
@@ -296,7 +291,7 @@ class DatasetMixerConfig:
         default=None,
         metadata={"help": ("Filter the sources to use in the dataset.")},
     )
-    converter: Optional[RoleBasedConverterConfig | ConvertToHFChatTemplateConfig] = field(
+    converter: Optional[Union[RoleBasedConverterConfig, ConvertToHFChatTemplateConfig]] = field(
         default=None,
         metadata={"help": ("The properties to define the role based converter.")},
     )

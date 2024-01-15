@@ -52,16 +52,17 @@ logger = logging.getLogger(__name__)
 
 def _plot_word_count_distribution(name, dataset, bin_size=200):
     # Fügen Sie eine neue Spalte "word_count" hinzu, die die Anzahl der Wörter in jedem Text enthält
-    dataset = dataset.map(lambda example: {"word_count": len(example["text"])})
+    dataset = dataset.map(lambda example: {"tokens": len(example["input_ids"])})
 
     # Zählen Sie die Häufigkeit jeder Wortanzahl
-    word_counts = list(dataset["word_count"])
+    tokens = list(dataset["tokens"])
 
     # Erstellen Sie die Bereiche
-    bins = range(min(word_counts), max(word_counts) + bin_size, bin_size)
+    max_tokens = min(max(tokens), 4000)
+    bins = range(min(tokens), max_tokens + bin_size, bin_size)
 
-    # Teilen Sie die Daten in Bereiche
-    histogram, bins = np.histogram(word_counts, bins=bins)
+     # Teilen Sie die Daten in Bereiche
+    histogram, bins = np.histogram(tokens, bins=bins)
 
     # Erstellen Sie den Plot
     plt.bar(bins[:-1], histogram, width=bin_size)
@@ -71,6 +72,16 @@ def _plot_word_count_distribution(name, dataset, bin_size=200):
 
     # Speichern Sie den Plot als Bild
     plt.savefig(f'{name}.png')
+
+def filter_long_examples(dataset, max_seq_length, model_args):
+    tokenizer = transformers.AutoTokenizer.from_pretrained(
+        model_args.model_name_or_path,
+        revision=model_args.model_revision,
+        use_fast=True
+    )
+
+    dataset = dataset.map(lambda examples: tokenizer(examples['text']), batched=True)
+    return dataset.filter(lambda example: len(example["input_ids"]) <= max_seq_length)
 
 def main():
     parser = H4ArgumentParser((ModelArguments, DataArguments, SFTConfig))
@@ -130,11 +141,9 @@ def main():
     ############################
     # Filter out too much tokens examples
     ############################
-    
-    estimated_words = training_args.max_seq_length * 1.8
-
-    train_dataset = train_dataset.filter(lambda example: not len(example["text"]) >= estimated_words or len(tokenizer.encode(example["text"])) >= training_args.max_seq_length)
-    eval_dataset = eval_dataset.filter(lambda example: not len(example["text"]) >= estimated_words or len(tokenizer.encode(example["text"])) >= training_args.max_seq_length)
+    print(f"Filtering out examples with more than {training_args.max_seq_length} tokens...")
+    train_dataset = filter_long_examples(train_dataset, training_args.max_seq_length, model_args)
+    eval_dataset = filter_long_examples(eval_dataset, training_args.max_seq_length, model_args)
 
     print("train_dataset", train_dataset)
     print("eval_dataset", eval_dataset)
@@ -158,7 +167,8 @@ def main():
     )
     quantization_config = get_quantization_config(model_args)
 
-    use_cache = False if training_args.gradient_checkpointing else True
+    optional_kwargs = {}
+
     model_kwargs = dict(
         revision=model_args.model_revision,
         trust_remote_code=model_args.trust_remote_code,
@@ -167,19 +177,14 @@ def main():
         use_cache=False if training_args.gradient_checkpointing else True,
         device_map=get_kbit_device_map() if quantization_config is not None else None,
         quantization_config=quantization_config,
-        rope_scaling=asdict(model_args.rope_scaling) if model_args.rope_scaling else None,
-        #config=AutoConfig.from_pretrained(model_args.model_name_or_path, rope_scaling=asdict(model_args.rope_scaling)) if model_args.rope_scaling else None
-    )
+        **optional_kwargs)
     logger.info("*** Model loaded! ***")
-
-    #print("RESUMING FROM 1300")
-    #train_position = (training_args.gradient_accumulation_steps * training_args.per_device_train_batch_size) * 1300
-    #train_dataset = train_dataset.select(range(train_position, len(train_dataset)))
-    #print(train_dataset)
 
     ########################
     # Initialize the Trainer
     ########################
+    packing = True
+
     trainer = SFTTrainer(
         model=model_args.model_name_or_path,
         model_init_kwargs=model_kwargs,
@@ -189,7 +194,7 @@ def main():
         dataset_text_field="text",
         max_seq_length=training_args.max_seq_length,
         tokenizer=tokenizer,
-        packing=True,
+        packing=packing,
         peft_config=get_peft_config(model_args),
     )
 
@@ -201,7 +206,15 @@ def main():
         training_args.overwrite_output_dir = False
 
     logger.info("*** Train ***")
-    train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint) if training_args.resume_from_checkpoint else trainer.train()
+
+    if model_args.optimum and packing:
+        logger.info("Optimum training")
+        with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
+            train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint) if training_args.resume_from_checkpoint else trainer.train()
+    else:
+        train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint) if training_args.resume_from_checkpoint else trainer.train()
+    
+    
     metrics = train_result.metrics
     max_train_samples = data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
     metrics["train_samples"] = min(max_train_samples, len(train_dataset))
@@ -231,9 +244,9 @@ def main():
     if accelerator.is_main_process:
         kwargs = {
             "finetuned_from": model_args.model_name_or_path,
-            "dataset": list(data_args.dataset_mixer.keys()),
-            "dataset_tags": list(data_args.dataset_mixer.keys()),
-            "tags": ["alignment-handbook"],
+            "dataset": [dataset_mixer_entry.dataset for dataset_mixer_entry in data_args.dataset_mixer],
+            "dataset_tags": [dataset_mixer_entry.dataset for dataset_mixer_entry in data_args.dataset_mixer],
+            "tags": ["alignment-handbook-specialized"],
         }
         trainer.create_model_card(**kwargs)
         # Restore k,v cache for fast inference
