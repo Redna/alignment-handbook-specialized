@@ -5,12 +5,12 @@ use_flash_attention_2: false
 optimum: false
 
 # LoRA arguments
-load_in_4bit: true
+load_in_4bit: false
 load_in_8bit: false
 use_peft: true
-lora_r: 16
-lora_alpha: 32
-lora_dropout: 0.05
+lora_r: 8
+lora_alpha: 16
+lora_dropout: 0.1
 lora_target_modules:
 - q_proj
 - k_proj
@@ -23,73 +23,11 @@ lora_target_modules:
 
 # Data training arguments
 dataset_mixer:
-  - dataset: garage-bAInd/Open-Platypus
-    proportion: 0.15
-    dataset_splits:
-    - train
-    - test
-    blacklist_sources:
-    - scienceqa
-    - reclor
-    blacklist_sources_key: data_source
-    converter:
-      name: role_based_converter
-      seperator: "\n\n"
-  - dataset: teknium/GPTeacher-General-Instruct
-    proportion: 0.15
-    data_files: 
-    - gpt4-instruct-dedupe-only-dataset.json
-    converter:
-      name: role_based_converter
-      user_keys:
-        - input
-        - instruction
-      assistant_keys:
-        - response
-      seperator: "\n\n"
-  - dataset: cognitivecomputations/dolphin-coder
-    proportion: .05
-    converter:
-      name: role_based_converter
-      system_keys:
-        - system_prompt
-      user_keys:
-        - question
-      assistant_keys:
-        - response
-      seperator: "\n\n"
-  - dataset: teknium/openhermes
-    proportion: 0.04
-    converter:
-      name: role_based_converter
-      user_keys:
-        - input
-        - instruction
-      assistant_keys:
-        - output
-      seperator: "\n\n"
-  - dataset: Open-Orca/SlimOrca-Dedup
-    proportion: .0125
-    converter:
-      name: convert_to_hf_chat_template
-  - dataset: greengerong/leetcode
+  - dataset: alexredna/slim_orca_hermes_reasoning_sft
     proportion: 1
-    converter:
-      name: role_based_converter
-      user_keys:
-        - content
-      assistant_keys:
-        - python
-      seperator: "\n\n"
-  - dataset: greengerong/leetcode
+  - dataset: alexredna/oasst2_dpo_pairs
     proportion: 1
-    converter:
-      name: role_based_converter
-      user_keys:
-        - content
-      assistant_keys:
-        - python
-      seperator: "\n\n"
+
 preprocessing_num_workers: 12
 truncation_side: right
 use_fast_tokenizer: false
@@ -100,28 +38,28 @@ bf16: true
 do_eval: true
 evaluation_strategy: steps
 eval_steps: 10
-gradient_accumulation_steps: 36
+gradient_accumulation_steps: 20
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
 ddp_find_unused_parameters: false
 hub_model_id: alexredna/Tukan-1.1B-Chat-v0.1
 hub_strategy: every_save
-learning_rate: 4.0e-05
+learning_rate: 5.0e-05
 log_level: info
 logging_steps: 5
 logging_strategy: steps
 lr_scheduler_type: cosine
 max_seq_length: 2048
 max_steps: -1
-num_train_epochs: 1
-per_device_eval_batch_size: 4
-per_device_train_batch_size: 6
-push_to_hub: true # TODO reennable
+num_train_epochs: 5
+per_device_eval_batch_size: 5
+per_device_train_batch_size: 10
+push_to_hub: false # TODO reennable
 remove_unused_columns: true
 report_to:
 - tensorboard
-- wandb
+#- wandb
 save_strategy: steps
 save_steps: 20
 save_total_limit: 2
@@ -130,3 +68,6 @@ tf32: false
 resume_from_checkpoint: false
 output_dir: data/Tukan-1.1B-Chat
 overwrite_output_dir: true
+
+# Multi Lora training config
+chain_of_lora_enabled: true

@@ -311,9 +311,13 @@ def mix_datasets(dataset_mixer: dict, splits: Optional[List[str]] = None, shuffl
             else:
                 raise ValueError(f"Split type {split} not recognized as one of test or train.")
 
+    total_examples = sum([len(ds) for ds in train_subsets])
+
     for i, ds in enumerate(raw_val_datasets):
         if ds is None:
-            tmp_split = train_subsets[i].train_test_split(test_size=0.02*fracs[i], shuffle=True, seed=seed)
+            portion = fracs[i] / sum(fracs)
+            test_size = 0.05 * portion * total_examples / total_examples
+            tmp_split = train_subsets[i].train_test_split(test_size=test_size, shuffle=True, seed=seed)
             train_subsets[i] = tmp_split["train"]
             raw_val_datasets[i] = tmp_split["test"]
 

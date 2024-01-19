@@ -409,3 +409,13 @@ class DPOConfig(transformers.TrainingArguments):
     )
     optim: Optional[str] = field(default="rmsprop")
     remove_unused_columns: bool = field(default=False)
+
+@dataclass
+class ChainOfLoraConfig:
+    """
+    Arguments for trainig the multi lora
+    """
+    chain_of_lora_enabled: bool = field(
+        default=False,
+        metadata={"help": ("Whether to use chain of lora.")},
+    )

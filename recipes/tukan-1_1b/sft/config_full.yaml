@@ -44,7 +44,7 @@ push_to_hub: true
 remove_unused_columns: true
 report_to:
 - tensorboard
-#- wandb
+- wandb
 save_strategy: steps
 save_steps: 50
 save_total_limit: 2

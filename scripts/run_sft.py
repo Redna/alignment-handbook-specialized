@@ -18,14 +18,19 @@ Supervised fine-tuning script for decoder language models.
 """
 
 import logging
+import os
 import random
 import sys
+import shutil
+from alignment.configs import ChainOfLoraConfig
 
 import datasets
 import torch
 import transformers
 from transformers import set_seed, AutoConfig
+from peft import AutoPeftModelForCausalLM
 
+import gc
 from accelerate import Accelerator
 from alignment import (
     DataArguments,
@@ -50,6 +55,17 @@ from collections import Counter
 
 logger = logging.getLogger(__name__)
 
+
+def _rmtree_with_exclude(main_directory, excluded_folder=None):
+    for root, dirs, files in os.walk(main_directory):
+        if excluded_folder and root == os.path.join(main_directory, excluded_folder):
+            continue
+        for file in files:
+            os.remove(os.path.join(root, file))
+        for dir in dirs:
+            if not excluded_folder or dir != excluded_folder:
+                shutil.rmtree(os.path.join(root, dir))
+
 def _plot_word_count_distribution(name, dataset, bin_size=200):
     # Fügen Sie eine neue Spalte "word_count" hinzu, die die Anzahl der Wörter in jedem Text enthält
     dataset = dataset.map(lambda example: {"tokens": len(example["input_ids"])})
@@ -66,9 +82,9 @@ def _plot_word_count_distribution(name, dataset, bin_size=200):
 
     # Erstellen Sie den Plot
     plt.bar(bins[:-1], histogram, width=bin_size)
-    plt.xlabel('Wortanzahl')
-    plt.ylabel('Häufigkeit')
-    plt.title('Wortanzahlverteilung')
+    plt.xlabel('# of tokens')
+    plt.ylabel('Count')
+    plt.title('Token count distribution')
 
     # Speichern Sie den Plot als Bild
     plt.savefig(f'{name}.png')
@@ -83,9 +99,102 @@ def filter_long_examples(dataset, max_seq_length, model_args):
     dataset = dataset.map(lambda examples: tokenizer(examples['text']), batched=True)
     return dataset.filter(lambda example: len(example["input_ids"]) <= max_seq_length)
 
+
+def build_model_kwargs(model_args, training_args, logger):
+    #######################
+    # Load pretrained model
+    #######################
+    logger.info("*** Load pretrained model ***")
+    torch_dtype = (
+        model_args.torch_dtype if model_args.torch_dtype in ["auto", None] else getattr(torch, model_args.torch_dtype)
+    )
+    quantization_config = get_quantization_config(model_args)
+
+    optional_kwargs = {}
+
+    model_kwargs = dict(
+        revision=model_args.model_revision,
+        trust_remote_code=model_args.trust_remote_code,
+        use_flash_attention_2=model_args.use_flash_attention_2,
+        torch_dtype=torch_dtype,
+        use_cache=False if training_args.gradient_checkpointing else True,
+        device_map=get_kbit_device_map() if quantization_config is not None else None,
+        quantization_config=quantization_config,
+        **optional_kwargs)
+    logger.info("*** Model loaded! ***")
+    
+    return model_kwargs
+
+def run_training(model_args, model_kwargs, training_args, train_dataset, eval_dataset, tokenizer, data_args, logger):
+    ########################
+    # Initialize the Trainer
+    ########################
+    packing = True
+
+    trainer = SFTTrainer(
+        model=model_args.model_name_or_path,
+        model_init_kwargs=model_kwargs,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
+        dataset_text_field="text",
+        max_seq_length=training_args.max_seq_length,
+        tokenizer=tokenizer,
+        packing=packing,
+        peft_config=get_peft_config(model_args),
+    )
+
+    ###############
+    # Training loop
+    ###############
+    if training_args.resume_from_checkpoint:
+        logger.info("setting overwrite_output_dir=False to resume training")
+        training_args.overwrite_output_dir = False
+
+    logger.info("*** Train ***")
+
+    train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint) if training_args.resume_from_checkpoint else trainer.train()
+
+    metrics = train_result.metrics
+    max_train_samples = data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
+    metrics["train_samples"] = min(max_train_samples, len(train_dataset))
+    trainer.log_metrics("train", metrics)
+    trainer.save_metrics("train", metrics)
+    trainer.save_state()
+
+    ##########
+    # Evaluate
+    ##########
+    if training_args.do_eval:
+        logger.info("*** Evaluate ***")
+        metrics = trainer.evaluate()
+        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
+        metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
+        trainer.log_metrics("eval", metrics)
+        trainer.save_metrics("eval", metrics)
+
+    return trainer
+
+def merge_and_update_lora_model(model, tokenizer, training_args):
+    model = None
+    torch.cuda.empty_cache()
+
+    model = AutoPeftModelForCausalLM.from_pretrained(training_args.output_dir, device_map="auto")
+    model = model.merge_and_unload()
+
+    # remove all under training_args.output_dir
+    merged_dir = training_args.output_dir + "_merged"
+    shutil.rmtree(merged_dir)
+
+    model.save_pretrained(merged_dir)
+    tokenizer.save_pretrained(merged_dir)
+    
+    return model, merged_dir
+    
+
 def main():
-    parser = H4ArgumentParser((ModelArguments, DataArguments, SFTConfig))
-    model_args, data_args, training_args = parser.parse()
+    parser = H4ArgumentParser((ModelArguments, DataArguments, SFTConfig, ChainOfLoraConfig))
+    model_args, data_args, training_args, chain_of_lora = parser.parse()
 
     # Set seed for reproducibility
     set_seed(training_args.seed)
@@ -157,81 +266,44 @@ def main():
     _plot_word_count_distribution("train", train_dataset)
     _plot_word_count_distribution("eval", eval_dataset)
 
+    chain_rounds = 1 # default
+    if chain_of_lora.chain_of_lora_enabled:
+        chain_rounds = training_args.num_train_epochs
+        training_args.num_train_epochs = 1
 
-    #######################
-    # Load pretrained model
-    #######################
-    logger.info("*** Load pretrained model ***")
-    torch_dtype = (
-        model_args.torch_dtype if model_args.torch_dtype in ["auto", None] else getattr(torch, model_args.torch_dtype)
-    )
-    quantization_config = get_quantization_config(model_args)
 
-    optional_kwargs = {}
+    configured_model_name_or_path = model_args.model_name_or_path
 
-    model_kwargs = dict(
-        revision=model_args.model_revision,
-        trust_remote_code=model_args.trust_remote_code,
-        use_flash_attention_2=model_args.use_flash_attention_2,
-        torch_dtype=torch_dtype,
-        use_cache=False if training_args.gradient_checkpointing else True,
-        device_map=get_kbit_device_map() if quantization_config is not None else None,
-        quantization_config=quantization_config,
-        **optional_kwargs)
-    logger.info("*** Model loaded! ***")
+    trainer = None
 
-    ########################
-    # Initialize the Trainer
-    ########################
-    packing = True
+    output_dir = training_args.output_dir
 
-    trainer = SFTTrainer(
-        model=model_args.model_name_or_path,
-        model_init_kwargs=model_kwargs,
-        args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        dataset_text_field="text",
-        max_seq_length=training_args.max_seq_length,
-        tokenizer=tokenizer,
-        packing=packing,
-        peft_config=get_peft_config(model_args),
-    )
+    for chain_round in range(chain_rounds):
+        logger.info(f"Chain round {chain_round + 1} of {chain_rounds}")
+        
+        model_kwargs = build_model_kwargs(model_args, training_args, logger)
 
-    ###############
-    # Training loop
-    ###############
-    if training_args.resume_from_checkpoint:
-        logger.info("setting overwrite_output_dir=False to resume training")
-        training_args.overwrite_output_dir = False
+        if trainer: 
+            del trainer.model
+            del trainer
+            torch.cuda.empty_cache()
+            gc.collect()
+            train_dataset.shuffle(seed=training_args.seed)
+            eval_dataset.shuffle(seed=training_args.seed)
+            
+        trainer = run_training(model_args, model_kwargs, training_args, train_dataset, eval_dataset, tokenizer, data_args, logger)
+        trainer.save_model(training_args.output_dir)
+        if accelerator.is_main_process and training_args.push_to_hub:
+            trainer.push_to_hub()
 
-    logger.info("*** Train ***")
-
-    if model_args.optimum and packing:
-        logger.info("Optimum training")
-        with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_efficient=False):
-            train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint) if training_args.resume_from_checkpoint else trainer.train()
-    else:
-        train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint) if training_args.resume_from_checkpoint else trainer.train()
-    
-    
-    metrics = train_result.metrics
-    max_train_samples = data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
-    metrics["train_samples"] = min(max_train_samples, len(train_dataset))
-    trainer.log_metrics("train", metrics)
-    trainer.save_metrics("train", metrics)
-    trainer.save_state()
-
-    ##########
-    # Evaluate
-    ##########
-    if training_args.do_eval:
-        logger.info("*** Evaluate ***")
-        metrics = trainer.evaluate()
-        max_eval_samples = data_args.max_eval_samples if data_args.max_eval_samples is not None else len(eval_dataset)
-        metrics["eval_samples"] = min(max_eval_samples, len(eval_dataset))
-        trainer.log_metrics("eval", metrics)
-        trainer.save_metrics("eval", metrics)
+        if get_quantization_config(model_args) or chain_of_lora.chain_of_lora_enabled:
+            trainer.model, output_dir = merge_and_update_lora_model(trainer.model, tokenizer, training_args)
+            model_args.model_name_or_path = output_dir
+            _rmtree_with_exclude(training_args.output_dir, excluded_folder="runs")
+        
+        accelerator.wait_for_everyone()
+        
+    model_args.model_name_or_path = configured_model_name_or_path
 
     ##################################
     # Save model and create model card
