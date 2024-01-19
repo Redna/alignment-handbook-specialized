@@ -6,6 +6,9 @@
     🤗 <a href="https://huggingface.co/collections/alignment-handbook/handbook-v01-models-and-datasets-654e424d22e6880da5ebc015" target="_blank">Models & Datasets</a> | 📃 <a href="https://arxiv.org/abs/2310.16944" target="_blank">Technical Report</a>
 </p>
 
+## Run training
+`nohup sh -c 'ACCELERATE_LOG_LEVEL=info accelerate launch --config_file finetuning/alignment-handbook/recipes/accelerate_configs/multi_gpu.yaml --num_processes=1 finetuning/alignment-handbook/scripts/run_sft.py finetuning/alignment-handbook/recipes/tukan-1_1b/sft/config_lora.yaml' > output.log 2>&1 &`
+
 # The Alignment Handbook
 
 Robust recipes to align language models with human and AI preferences.
