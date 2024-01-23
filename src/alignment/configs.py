@@ -419,3 +419,14 @@ class ChainOfLoraConfig:
         default=False,
         metadata={"help": ("Whether to use chain of lora.")},
     )
+
+    resume_from_round: int = field(
+        default=0,
+        metadata={"help": ("Whether to resume training.")},
+    )
+
+    epochs_per_round: float = field(
+        default=1.0,
+        metadata={"help": ("The number of epochs per round.")},
+    )
+

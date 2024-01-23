@@ -22,9 +22,11 @@ import os
 import random
 import sys
 import shutil
+import math
 from alignment.configs import ChainOfLoraConfig
 
 import datasets
+from datasets import enable_caching, disable_caching
 import torch
 import transformers
 from transformers import set_seed, AutoConfig
@@ -131,6 +133,9 @@ def run_training(model_args, model_kwargs, training_args, train_dataset, eval_da
     ########################
     packing = True
 
+    disable_caching()
+    train_dataset = train_dataset.shuffle(seed=training_args.seed)
+    eval_dataset = eval_dataset.shuffle(seed=training_args.seed)
     trainer = SFTTrainer(
         model=model_args.model_name_or_path,
         model_init_kwargs=model_kwargs,
@@ -155,6 +160,7 @@ def run_training(model_args, model_kwargs, training_args, train_dataset, eval_da
 
     train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint) if training_args.resume_from_checkpoint else trainer.train()
 
+    enable_caching()
     metrics = train_result.metrics
     max_train_samples = data_args.max_train_samples if data_args.max_train_samples is not None else len(train_dataset)
     metrics["train_samples"] = min(max_train_samples, len(train_dataset))
@@ -175,7 +181,7 @@ def run_training(model_args, model_kwargs, training_args, train_dataset, eval_da
 
     return trainer
 
-def merge_and_update_lora_model(model, tokenizer, training_args):
+def merge_and_update_lora_model(model, tokenizer, training_args, round=0):
     model = None
     torch.cuda.empty_cache()
 
@@ -183,8 +189,11 @@ def merge_and_update_lora_model(model, tokenizer, training_args):
     model = model.merge_and_unload()
 
     # remove all under training_args.output_dir
-    merged_dir = training_args.output_dir + "_merged"
-    shutil.rmtree(merged_dir)
+    merged_dir = f"{training_args.output_dir}_merged_{round}"
+    try: 
+        shutil.rmtree(merged_dir)
+    except:
+        pass
 
     model.save_pretrained(merged_dir)
     tokenizer.save_pretrained(merged_dir)
@@ -268,9 +277,13 @@ def main():
 
     chain_rounds = 1 # default
     if chain_of_lora.chain_of_lora_enabled:
-        chain_rounds = training_args.num_train_epochs
-        training_args.num_train_epochs = 1
-
+        def calculate_chain_of_lora_parameters(epochs_per_round, num_train_epochs):
+            chain_rounds = math.ceil(num_train_epochs / epochs_per_round)
+            num_train_epochs_output = num_train_epochs / chain_rounds
+            return num_train_epochs_output, chain_rounds
+        
+        training_args.num_train_epochs, chain_rounds = calculate_chain_of_lora_parameters(chain_of_lora.epochs_per_round, training_args.num_train_epochs)
+        logger.info(f"Chain of LoRa enabled. Chain rounds: {chain_rounds}, epochs per round: {chain_of_lora.epochs_per_round}, total epochs: {training_args.num_train_epochs}")
 
     configured_model_name_or_path = model_args.model_name_or_path
 
@@ -278,7 +291,15 @@ def main():
 
     output_dir = training_args.output_dir
 
-    for chain_round in range(chain_rounds):
+    resume_from_round = 0
+
+    if chain_of_lora.resume_from_round > 0:
+        resume_from_round = chain_of_lora.resume_from_round
+        logger.info(f"Resuming from round {resume_from_round}")
+        model_args.model_name_or_path = f"{output_dir}_merged_{resume_from_round}"
+        training_args.output_dir = f"{output_dir}_merged_res_{resume_from_round}"
+
+    for chain_round in range(resume_from_round, chain_rounds):
         logger.info(f"Chain round {chain_round + 1} of {chain_rounds}")
         
         model_kwargs = build_model_kwargs(model_args, training_args, logger)
@@ -288,23 +309,18 @@ def main():
             del trainer
             torch.cuda.empty_cache()
             gc.collect()
-            train_dataset.shuffle(seed=training_args.seed)
-            eval_dataset.shuffle(seed=training_args.seed)
-            
+
         trainer = run_training(model_args, model_kwargs, training_args, train_dataset, eval_dataset, tokenizer, data_args, logger)
-        trainer.save_model(training_args.output_dir)
-        if accelerator.is_main_process and training_args.push_to_hub:
-            trainer.push_to_hub()
+        trainer.save_model(training_args.output_dir, _internal_call=True)
 
         if get_quantization_config(model_args) or chain_of_lora.chain_of_lora_enabled:
-            trainer.model, output_dir = merge_and_update_lora_model(trainer.model, tokenizer, training_args)
+            trainer.model, output_dir = merge_and_update_lora_model(trainer.model, tokenizer, training_args, round=chain_round)
             model_args.model_name_or_path = output_dir
             _rmtree_with_exclude(training_args.output_dir, excluded_folder="runs")
         
-        accelerator.wait_for_everyone()
-        
     model_args.model_name_or_path = configured_model_name_or_path
-
+    trainer.model.name_or_path = configured_model_name_or_path
+    trainer.model.config._name_or_path = configured_model_name_or_path
     ##################################
     # Save model and create model card
     ##################################
@@ -329,6 +345,8 @@ def main():
             logger.info("Pushing to hub...")
             trainer.push_to_hub()
 
+
+    
     accelerator.wait_for_everyone()
 
 
